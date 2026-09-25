@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Object Detection Trainer</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #fff; --text: #16181d; --muted: #5d6573; --line: #e2e5ea;
+    --accent: #2563eb; --accent-2: #d97706; --danger: #dc2626; --radius: 14px;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1014; --card: #171a21; --text: #e8eaee; --muted: #9aa3b2; --line: #2a2f3a;
+      --accent: #60a5fa; --accent-2: #fbbf24; --danger: #f87171; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1014; --card: #171a21; --text: #e8eaee; --muted: #9aa3b2; --line: #2a2f3a;
+    --accent: #60a5fa; --accent-2: #fbbf24; --danger: #f87171; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+  header, main { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  header { padding-block: 32px 16px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+  h1 { margin: 0; font-size: 1.5rem; }
+  header p { margin: 0; color: var(--muted); flex: 1 1 300px; }
+  .badge { font: 600 12px/1 ui-monospace, monospace; padding: 6px 8px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+  h2 { margin: 0 0 12px; font-size: 1.05rem; display: flex; gap: 10px; align-items: center; }
+  h2 span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--card); font-size: 13px; }
+  .drop { display: block; border: 2px dashed var(--line); border-radius: var(--radius); padding: 28px 16px; text-align: center; color: var(--muted); cursor: pointer; transition: border-color .15s; }
+  .drop.over, .drop:hover { border-color: var(--accent); }
+  .drop strong { color: var(--text); }
+  .drop input { display: none; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip { padding: 3px 10px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); font-size: 13px; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+  label.field { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  input[type=number] { width: 110px; }
+  input[type=number], button, .btn { font: inherit; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+  button, .btn { cursor: pointer; font-weight: 600; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--card); }
+  button:disabled, .btn.disabled { opacity: .45; cursor: not-allowed; pointer-events: none; }
+  .btn input { display: none; }
+  progress { width: 100%; height: 6px; margin-top: 16px; accent-color: var(--accent); }
+  #status { margin: 8px 0 0; color: var(--muted); font-size: 14px; min-height: 1.5em; }
+  #status.error { color: var(--danger); }
+  .chart { position: relative; margin-top: 12px; }
+  canvas#chart { width: 100%; height: 160px; display: block; border: 1px solid var(--line); border-radius: 10px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 16px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; vertical-align: middle; margin-right: 6px; }
+  .legend b { color: var(--text); font-variant-numeric: tabular-nums; }
+  #view { width: 100%; margin-top: 12px; border-radius: 10px; display: none; }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; margin-top: 12px; }
+  .gallery canvas { width: 100%; border-radius: 8px; background: var(--bg); }
+  .muted { color: var(--muted); font-size: 13px; }
+  input[type=range] { accent-color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Object Detection Trainer</h1>
+  <p>Train a YOLO-style detector in your browser. Nothing is uploaded.</p>
+  <span class="badge" id="backend">loading…</span>
+</header>
+<main>
+  <section>
+    <h2><span>1</span>Dataset</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="folder" webkitdirectory multiple>
+      <strong>Drop a YOLO dataset folder</strong> or click to choose<br>
+      Images, one <code>.txt</code> label file per image, and <code>classes.txt</code> or <code>data.yaml</code>
+    </label>
+    <div class="chips" id="stats"></div>
+  </section>
+
+  <section>
+    <h2><span>2</span>Train</h2>
+    <div class="row">
+      <label class="field">Epochs <input type="number" id="epochs" value="30" min="1"></label>
+      <label class="field">Batch size <input type="number" id="batch" value="16" min="1"></label>
+      <label class="field">Learning rate <input type="number" id="lr" value="0.001" step="0.0001" min="0"></label>
+      <button class="primary" id="train" disabled>Train</button>
+    </div>
+    <progress id="progress" value="0" max="1"></progress>
+    <p id="status">Load a dataset to start.</p>
+    <div class="chart">
+      <canvas id="chart"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>Train loss <b id="m-train">–</b></span>
+        <span><i style="background:var(--accent-2)"></i>Val loss <b id="m-val">–</b></span>
+        <span>mAP@50 <b id="m-map">–</b></span>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span>3</span>Test &amp; export</h2>
+    <div class="row">
+      <label class="field">Confidence <input type="range" id="conf" min="0.05" max="0.95" step="0.05" value="0.4"></label>
+      <label class="btn disabled" id="pick">Test image<input type="file" id="image" accept="image/*"></label>
+      <button id="cam" disabled>Camera</button>
+      <button id="export" disabled>Export model</button>
+    </div>
+    <canvas id="view"></canvas>
+    <p class="muted" id="gallery-note">Validation predictions show up here while training.</p>
+    <div class="gallery" id="gallery"></div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgpu@4.22.0/dist/tf-backend-webgpu.min.js"></script>
+<script type="module">
+// Frozen MobileNet backbone (stride 16) + trainable YOLO-style grid head.
+// Head output per cell: [objectness, x, y, sqrt(w), sqrt(h), ...class logits].
+const S = 320, G = S / 16, VAL_SPLIT = 0.15, GALLERY = 12;
+const BACKBONE_URL = 'https://storage.googleapis.com/tfjs-models/tfjs/mobilenet_v1_0.25_224/model.json';
+const IMG = /\.(jpe?g|png|webp|bmp|gif)$/i;
+
+const $ = s => document.querySelector(s);
+const sig = x => 1 / (1 + Math.exp(-x));
+const color = i => `hsl(${(i * 137.5) % 360} 80% 50%)`;
+const stem = n => n.replace(/\.[^.]+$/, '');
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+const st = { items: [], classes: [], backbone: null, head: null, feats: null, targets: null,
+             train: [], val: [], gallery: [], hist: { train: [], val: [] }, running: false, stream: null };
+
+function status(msg, error = false) { $('#status').textContent = msg; $('#status').classList.toggle('error', error); }
+
+// ---------- dataset ----------
+function parseYamlNames(txt) {
+  const inline = txt.match(/^names:\s*\[(.*)\]/m);
+  const clean = s => s.trim().replace(/^['"]|['"]$/g, '');
+  if (inline) return inline[1].split(',').map(clean).filter(Boolean);
+  const lines = txt.split(/\r?\n/), start = lines.findIndex(l => /^names:\s*$/.test(l)), out = [];
+  if (start < 0) return null;
+  for (const line of lines.slice(start + 1)) {
+    const m = line.match(/^\s+(?:-\s*|(\d+)\s*:\s*)(.+)$/);
+    if (!m) { if (line.trim()) break; continue; }
+    out[m[1] ?? out.length] = clean(m[2]);
+  }
+  return out.length ? out : null;
+}
+
+function parseLabels(txt) {
+  return txt.split(/\r?\n/).map(l => l.trim().split(/\s+/).map(Number)).filter(v => v.length >= 5 && v.every(isFinite)).map(v => {
+    if (v.length === 5) return v;
+    const xs = v.filter((_, i) => i % 2), ys = v.slice(1).filter((_, i) => i % 2); // segmentation polygon → box
+    const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    return [v[0], (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0, y1 - y0];
+  });
+}
+
+async function addFiles(files) {
+  if (st.running) return status('Stop training before loading a new dataset.', true);
+  const images = [], labels = new Map();
+  let classes = null;
+  for (const f of files) {
+    const n = f.name.toLowerCase();
+    if (IMG.test(n)) images.push(f);
+    else if (n === 'classes.txt' || n.endsWith('.names')) classes = (await f.text()).split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    else if (/\.ya?ml$/.test(n)) classes ??= parseYamlNames(await f.text());
+    else if (n.endsWith('.txt')) labels.set(stem(f.name), f);
+  }
+  if (!images.length) return status('No images found in that selection.', true);
+  if (!labels.size) return status('No YOLO .txt label files found.', true);
+
+  st.items = await Promise.all(images.map(async file => {
+    const l = labels.get(stem(file.name));
+    return { file, boxes: l ? parseLabels(await l.text()) : [] };
+  }));
+  const maxId = Math.max(0, ...st.items.flatMap(it => it.boxes.map(b => b[0])));
+  st.classes = Array.from({ length: Math.max(classes?.length ?? 0, maxId + 1) }, (_, i) => classes?.[i] ?? `class ${i}`);
+  resetTraining();
+
+  const counts = st.classes.map((_, c) => st.items.reduce((s, it) => s + it.boxes.filter(b => b[0] === c).length, 0));
+  $('#stats').innerHTML = `<span class="chip">${st.items.length} images</span><span class="chip">${counts.reduce((a, b) => a + b, 0)} boxes</span>` +
+    st.classes.map((c, i) => `<span class="chip" style="border-color:${color(i)}">${c.replace(/</g, '&lt;')} · ${counts[i]}</span>`).join('');
+  $('#train').disabled = false;
+  status('Dataset ready. Press Train.');
+}
+
+async function walk(entry, out) {
+  if (entry.isFile) return out.push(await new Promise((res, rej) => entry.file(res, rej)));
+  const reader = entry.createReader();
+  for (let batch; (batch = await new Promise((res, rej) => reader.readEntries(res, rej))).length;)
+    for (const e of batch) await walk(e, out);
+}
+
+const drop = $('#drop');
+drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+drop.ondragleave = () => drop.classList.remove('over');
+drop.ondrop = async e => {
+  e.preventDefault(); drop.classList.remove('over');
+  const entries = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry()).filter(Boolean), files = [];
+  for (const en of entries) await walk(en, files);
+  addFiles(files);
+};
+$('#folder').onchange = e => addFiles([...e.target.files]);
+
+// ---------- model ----------
+async function loadBackbone() {
+  if (st.backbone) return st.backbone;
+  const base = await tf.loadLayersModel(BACKBONE_URL);
+  const input = tf.input({ shape: [S, S, 3] });
+  let x = input;
+  for (const l of base.layers.slice(1)) { x = l.apply(x); if (l.name === 'conv_pw_11_relu') break; }
+  return st.backbone = tf.model({ inputs: input, outputs: x });
+}
+
+function makeHead(channels, C) {
+  const input = tf.input({ shape: [G, G, channels] });
+  let x = input;
+  for (let i = 0; i < 2; i++) x = tf.layers.conv2d({ filters: 128, kernelSize: 3, padding: 'same', activation: 'relu' }).apply(x);
+  const last = tf.layers.conv2d({ filters: 5 + C, kernelSize: 1 });
+  const model = tf.model({ inputs: input, outputs: last.apply(x) });
+  const [k, b] = last.getWeights(), bias = b.arraySync();
+  bias[0] = -4; // start with "no object" everywhere
+  last.setWeights([k, tf.tensor1d(bias)]);
+  return model;
+}
+
+const toInput = (src, flip = false) => tf.tidy(() => {
+  let t = tf.image.resizeBilinear(tf.browser.fromPixels(src).toFloat(), [S, S]).div(127.5).sub(1);
+  return (flip ? t.reverse(1) : t).expandDims();
+});
+
+function encode(boxes, C, flip) {
+  const K = 5 + C, t = new Float32Array(G * G * K);
+  for (let [c, x, y, w, h] of boxes) {
+    if (flip) x = 1 - x;
+    const col = Math.min(G - 1, x * G | 0), row = Math.min(G - 1, y * G | 0), o = (row * G + col) * K;
+    t.fill(0, o, o + K);
+    t.set([1, x * G - col, y * G - row, Math.sqrt(w), Math.sqrt(h)], o);
+    t[o + 5 + c] = 1;
+  }
+  return t;
+}
+
+function lossFn(pred, y, C) {
+  return tf.tidy(() => {
+    const [po, pb, pc] = tf.split(pred, [1, 4, C], -1), [yo, yb, yc] = tf.split(y, [1, 4, C], -1);
+    const bce = po.relu().sub(po.mul(yo)).add(po.abs().neg().exp().log1p());
+    const obj = bce.mul(yo.mul(4).add(1)).sum();
+    const box = pb.sigmoid().sub(yb).square().sum(-1, true).mul(yo).sum().mul(5);
+    const cls = tf.losses.softmaxCrossEntropy(yc, pc, undefined, 0, tf.Reduction.NONE).expandDims(-1).mul(yo).sum();
+    return obj.add(box).add(cls).div(pred.shape[0]);
+  });
+}
+
+// ---------- decoding & metrics ----------
+function iou(a, b) {
+  const ix = Math.min(a.x + a.w / 2, b.x + b.w / 2) - Math.max(a.x - a.w / 2, b.x - b.w / 2);
+  const iy = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
+  const inter = Math.max(0, ix) * Math.max(0, iy);
+  return inter / (a.w * a.h + b.w * b.h - inter || 1);
+}
+
+function decode(a, thr) {
+  const C = st.classes.length, K = 5 + C, dets = [];
+  for (let r = 0; r < G; r++) for (let c = 0; c < G; c++) {
+    const o = (r * G + c) * K;
+    let best = 0, sum = 0;
+    for (let i = 1; i < C; i++) if (a[o + 5 + i] > a[o + 5 + best]) best = i;
+    for (let i = 0; i < C; i++) sum += Math.exp(a[o + 5 + i] - a[o + 5 + best]);
+    const score = sig(a[o]) / sum;
+    if (score < thr) continue;
+    dets.push({ cls: best, score, x: (c + sig(a[o + 1])) / G, y: (r + sig(a[o + 2])) / G, w: sig(a[o + 3]) ** 2, h: sig(a[o + 4]) ** 2 });
+  }
+  const keep = [];
+  for (const d of dets.sort((p, q) => q.score - p.score))
+    if (keep.every(k => k.cls !== d.cls || iou(k, d) < 0.45)) keep.push(d);
+  return keep;
+}
+
+function mAP50(preds, gts) {
+  let total = 0, n = 0;
+  st.classes.forEach((_, k) => {
+    const gt = gts.map(bs => bs.filter(b => b[0] === k).map(([, x, y, w, h]) => ({ x, y, w, h, used: false })));
+    const nGt = gt.reduce((s, g) => s + g.length, 0);
+    if (!nGt) return;
+    const dets = preds.flatMap((ds, i) => ds.filter(d => d.cls === k).map(d => ({ ...d, i }))).sort((p, q) => q.score - p.score);
+    let tp = 0, fp = 0;
+    const P = [], R = [];
+    for (const d of dets) {
+      const m = gt[d.i].filter(g => !g.used).reduce((b, g) => { const v = iou(d, g); return v >= 0.5 && v > b.v ? { g, v } : b; }, { v: 0 });
+      m.g ? (m.g.used = true, tp++) : fp++;
+      P.push(tp / (tp + fp)); R.push(tp / nGt);
+    }
+    for (let i = P.length - 2; i >= 0; i--) P[i] = Math.max(P[i], P[i + 1]);
+    total += R.reduce((s, r, i) => s + (r - (R[i - 1] ?? 0)) * P[i], 0); n++;
+  });
+  return n ? total / n : 0;
+}
+
+// ---------- training ----------
+function resetTraining() {
+  tf.dispose([st.feats, st.targets, st.head].filter(Boolean));
+  st.gallery.forEach(b => b.close());
+  Object.assign(st, { feats: null, targets: null, head: null, valRaw: null, gallery: [], hist: { train: [], val: [] } });
+  $('#gallery').innerHTML = ''; drawChart(); setTestEnabled(false);
+  for (const id of ['#m-train', '#m-val', '#m-map']) $(id).textContent = '–';
+}
+
+async function extractFeatures() {
+  status('Loading backbone…');
+  const backbone = await loadBackbone(), C = st.classes.length, feats = [], targets = [];
+  const order = shuffle([...st.items.keys()]), nVal = st.items.length >= 5 ? Math.max(1, Math.round(st.items.length * VAL_SPLIT)) : 0;
+  st.val = order.slice(0, nVal); st.train = order.slice(nVal);
+  for (const [n, it] of st.items.entries()) {
+    const bmp = await createImageBitmap(it.file);
+    for (const flip of [false, true]) {
+      const x = toInput(bmp, flip);
+      feats.push(backbone.predict(x)); x.dispose();
+      targets.push(encode(it.boxes, C, flip));
+    }
+    const g = st.val.indexOf(n);
+    if (g >= 0 && g < GALLERY) st.gallery[g] = bmp; else bmp.close();
+    $('#progress').value = (n + 1) / st.items.length;
+    status(`Extracting features ${n + 1}/${st.items.length}`);
+    await tf.nextFrame();
+  }
+  st.feats = tf.concat(feats); tf.dispose(feats);
+  const flat = new Float32Array(targets.length * targets[0].length);
+  targets.forEach((t, i) => flat.set(t, i * t.length));
+  st.targets = tf.tensor4d(flat, [targets.length, G, G, 5 + C]);
+}
+
+async function evaluate() {
+  if (!st.val.length) return;
+  const rows = tf.tensor1d(st.val.map(i => i * 2), 'int32');
+  const [out, loss] = tf.tidy(() => {
+    const p = st.head.predict(tf.gather(st.feats, rows));
+    return [p, lossFn(p, tf.gather(st.targets, rows), st.classes.length)];
+  });
+  const a = await out.data(), per = a.length / st.val.length;
+  st.valRaw = st.val.map((_, j) => a.subarray(j * per, (j + 1) * per));
+  st.hist.val.push((await loss.data())[0]);
+  const map = mAP50(st.valRaw.map(r => decode(r, 0.01)), st.val.map(i => st.items[i].boxes));
+  $('#m-val').textContent = st.hist.val.at(-1).toFixed(3);
+  $('#m-map').textContent = (map * 100).toFixed(1) + '%';
+  tf.dispose([rows, out, loss]);
+  renderGallery();
+}
+
+async function train() {
+  if (st.running) return (st.running = false);
+  st.running = true; $('#train').textContent = 'Stop';
+  try {
+    if (!st.feats) await extractFeatures();
+    tf.dispose(st.head);
+    st.head = makeHead(st.feats.shape[3], st.classes.length);
+    st.hist = { train: [], val: [] };
+    const epochs = +$('#epochs').value, bs = +$('#batch').value, opt = tf.train.adam(+$('#lr').value);
+    const rows = st.train.flatMap(i => [i * 2, i * 2 + 1]);
+    for (let e = 0; e < epochs && st.running; e++) {
+      shuffle(rows);
+      let sum = 0, steps = 0;
+      for (let b = 0; b < rows.length && st.running; b += bs) {
+        const idx = tf.tensor1d(rows.slice(b, b + bs), 'int32');
+        const loss = opt.minimize(() => lossFn(st.head.apply(tf.gather(st.feats, idx), { training: true }), tf.gather(st.targets, idx), st.classes.length), true);
+        sum += (await loss.data())[0]; steps++;
+        tf.dispose([idx, loss]);
+        $('#progress').value = (e + b / rows.length) / epochs;
+      }
+      st.hist.train.push(sum / steps);
+      $('#m-train').textContent = (sum / steps).toFixed(3);
+      await evaluate();
+      drawChart(); setTestEnabled(true);
+      status(`Epoch ${e + 1}/${epochs}`);
+    }
+    opt.dispose();
+    $('#progress').value = 1;
+    status(st.running ? 'Done. Test it below or export.' : 'Stopped.');
+  } catch (err) {
+    console.error(err); status(err.message, true);
+  }
+  st.running = false; $('#train').textContent = 'Train';
+}
+$('#train').onclick = train;
+
+function drawChart() {
+  const c = $('#chart'), { width: w, height: h } = c.getBoundingClientRect(), dpr = devicePixelRatio;
+  c.width = w * dpr; c.height = h * dpr;
+  const g = c.getContext('2d'), css = getComputedStyle(document.documentElement), all = [...st.hist.train, ...st.hist.val];
+  if (!all.length) return;
+  g.scale(dpr, dpr); g.lineWidth = 2; g.lineJoin = 'round';
+  const max = Math.max(...all), n = Math.max(st.hist.train.length, 2), p = 10;
+  for (const [s, v] of [[st.hist.train, '--accent'], [st.hist.val, '--accent-2']]) {
+    g.strokeStyle = css.getPropertyValue(v); g.beginPath();
+    s.forEach((y, i) => g.lineTo(p + i / (n - 1) * (w - 2 * p), p + (1 - y / max) * (h - 2 * p)));
+    g.stroke();
+  }
+}
+addEventListener('resize', drawChart);
+
+// ---------- test ----------
+function render(canvas, src, dets) {
+  const w = src.videoWidth || src.width, h = src.videoHeight || src.height, fs = Math.max(12, w / 40) | 0;
+  if (canvas.width !== w || canvas.height !== h) Object.assign(canvas, { width: w, height: h });
+  const g = canvas.getContext('2d');
+  g.drawImage(src, 0, 0, w, h);
+  g.lineWidth = Math.max(2, w / 300); g.font = `600 ${fs}px system-ui`;
+  for (const d of dets) {
+    const x = (d.x - d.w / 2) * w, y = (d.y - d.h / 2) * h, label = `${st.classes[d.cls]} ${Math.round(d.score * 100)}%`;
+    g.strokeStyle = g.fillStyle = color(d.cls);
+    g.strokeRect(x, y, d.w * w, d.h * h);
+    g.fillRect(x, Math.max(0, y - fs - 6), g.measureText(label).width + 8, fs + 6);
+    g.fillStyle = '#fff'; g.fillText(label, x + 4, Math.max(fs + 1, y - 4));
+  }
+}
+
+function renderGallery() {
+  const conf = +$('#conf').value, box = $('#gallery');
+  $('#gallery-note').hidden = !!st.valRaw;
+  st.gallery.forEach((bmp, j) => render(box.children[j] ?? box.appendChild(document.createElement('canvas')), bmp, decode(st.valRaw[j], conf)));
+}
+
+async function detect(src) {
+  const out = tf.tidy(() => st.head.predict(st.backbone.predict(toInput(src))));
+  const a = await out.data(); out.dispose();
+  return decode(a, +$('#conf').value);
+}
+
+function setTestEnabled(on) {
+  for (const id of ['#cam', '#export']) $(id).disabled = !on;
+  $('#pick').classList.toggle('disabled', !on);
+}
+
+let lastImage = null;
+async function showImage(bmp) { lastImage = bmp; $('#view').style.display = 'block'; render($('#view'), bmp, await detect(bmp)); }
+$('#image').onchange = async e => e.target.files[0] && showImage(await createImageBitmap(e.target.files[0]));
+$('#conf').oninput = () => { if (st.valRaw) renderGallery(); if (lastImage && !st.stream) showImage(lastImage); };
+
+$('#cam').onclick = async () => {
+  if (st.stream) { st.stream.getTracks().forEach(t => t.stop()); st.stream = null; $('#cam').textContent = 'Camera'; return; }
+  try { st.stream = await navigator.mediaDevices.getUserMedia({ video: true }); } catch (err) { return status(err.message, true); }
+  const video = Object.assign(document.createElement('video'), { srcObject: st.stream, muted: true, playsInline: true });
+  await video.play();
+  $('#cam').textContent = 'Stop camera'; $('#view').style.display = 'block';
+  while (st.stream && st.head) { render($('#view'), video, await detect(video)); await tf.nextFrame(); }
+};
+
+$('#export').onclick = async () => {
+  const input = tf.input({ shape: [S, S, 3] });
+  let x = input;
+  for (const l of [...st.backbone.layers.slice(1), ...st.head.layers.slice(1)]) x = l.apply(x);
+  const model = tf.model({ inputs: input, outputs: x });
+  model.setUserDefinedMetadata({ classes: st.classes, input: S, grid: G,
+    preprocess: 'RGB resized to input×input, scaled to [-1, 1]',
+    output: 'per cell: objectness logit, x, y, sqrt(w), sqrt(h) (sigmoid, x/y relative to cell), class logits' });
+  await model.save('downloads://detector');
+};
+
+// ---------- init ----------
+for (const b of ['webgpu', 'webgl', 'cpu']) { try { if (await tf.setBackend(b)) break; } catch {} }
+await tf.ready();
+$('#backend').textContent = tf.getBackend();
+window.addFiles = addFiles; // handy for scripting
+</script>
+</body>
+</html>

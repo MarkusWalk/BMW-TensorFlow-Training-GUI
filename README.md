@@ -1,5 +1,7 @@
 # Tensorflow Object Detection Training GUI for Linux
 
+> **New: browser-only trainer.** Open [`index.html`](./index.html) in Chrome/Edge (or serve it: `python3 -m http.server`), drop a YOLO dataset folder (images, `.txt` labels, `classes.txt` or `data.yaml`) and train. It runs on TensorFlow.js (WebGPU/WebGL) with a frozen MobileNet backbone and a YOLO-style head, shows loss, mAP@50 and live predictions, and exports a TF.js model. No Docker, no install. Best for small datasets and prototypes; the Docker setup below is still there for full-size training.
+
 This repository allows you to get started with training a State-of-the-art Deep Learning model with little to no configuration needed!  You provide your labeled dataset and you can start the training right away and monitor it with TensorBoard. 
 You can even test your model with our built-in Inference REST API. Training with TensorFlow has never been so easy.
 
